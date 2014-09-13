@@ -22,9 +22,11 @@
   (let [k (.-keyCode event)]
     (condp = k
       34 "pagedown"
+      32 "space"
       13 "enter"
       16 "shift"
       17 "control"
+      18 "alt"
       (str "unbound key: " k))))
 
 (let [move (event-chan js/window "mousemove")]
@@ -47,25 +49,10 @@
         (<! winchan)
         (swap! app-state assoc :keys-pressed #{}))))
 
-(comment
-(let [keydown (event-chan js/window "keydown")]
+(let [winchan (event-chan js/window "beforeunload")]
   (go (while true
-        (let [key (<! keydown)
-              keycode (.-keyCode key)]
-          (swap! app-state assoc :keys-pressed
-                 (conj (:keys-pressed @app-state) keycode))
-          (prn "keydown")
-          (prn app-state)))))
-
-(let [keyup (event-chan js/window "keyup")]
-  (go (while true
-        (let [key (<! keyup)
-              keycode (.-keyCode key)]
-          (swap! app-state assoc :keys-pressed
-                 (disj (:keys-pressed @app-state) keycode))
-          (prn "keyup")
-          (prn app-state)))))
-  )
+        (<! winchan)
+        (js/alert "are you sure you want to close?"))))
 
 (go
   (prn "hello")
