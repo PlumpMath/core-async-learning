@@ -61,8 +61,6 @@
   (<! (timeout 1000))
   (prn "world"))
 
-(def c (chan))
-
 (defn listen [el type]
   (let [c (chan)]
     (events/listen el type #(put! c %))
@@ -91,6 +89,7 @@
             (close! c))))
     c))
 
+(def c (chan))
 (go (while true (<! (timeout 250)) (>! c 1)))
 (go (while true (<! (timeout 1000)) (>! c 2)))
 (go (while true (<! (timeout 1500)) (>! c 3)))
