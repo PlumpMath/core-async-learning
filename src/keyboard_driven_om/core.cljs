@@ -3,7 +3,7 @@
   (:require [om.core :as om :include-macros true]
             [om.dom :as dom :include-macros true]
             [cljs.core.async :refer [put! chan <! >! alts! timeout close!]]
-            [goog.dom.classes :as classes]
+            [cljs-http.client :as http]
             [goog.events :as events]
             [goog.style :as style])
   (:import [goog.events EventType]))
@@ -13,7 +13,8 @@
 (def app-state (atom {:title "CSP Examples (core.async)"
                       :keys-pressed #{}
                       :processes []
-                      :tiles []}))
+                      :tiles []
+                      :fqjn ""}))
 
 (defn listen [el type]
   (let [c (chan)]
@@ -37,6 +38,12 @@
                                  ;(put! out x)))
     out))
 
+(defn GET [url]
+  (go (let [response (<! (http/get url {:with-credentials? false}))]
+        (prn (:status response))
+        (prn (:body response))
+        (swap! app-state assoc :fqjn (:body response)))))
+
 (defn handle-key-event [event]
   (let [k (.-keyCode event)]
     (condp = k
@@ -46,6 +53,7 @@
       16 "shift"
       17 "control"
       18 "alt"
+      27 "esc"
       (str "unbound key: " k))))
 
 (let [move (event-chan js/window "mousemove")]
@@ -69,6 +77,8 @@
 
 (gen-key-chan "keydown" conj)
 (gen-key-chan "keyup" disj)
+
+;(let [fqjn-chan 
 
 (let [winchan (event-chan js/window "blur")]
   (go (while true
@@ -151,7 +161,7 @@
   (swap! app-state assoc :tiles
          (let [tiles (:tiles @app-state)
                n (count tiles)]
-           (if (< 29 n)
+           (if (> n 29)
              tiles
              (conj tiles {:val (inc n)})))))
 
@@ -162,19 +172,22 @@
              tiles
              (pop tiles)))))
 
-(def prefix #{16 17})
+(defn prefix [ks]
+  (conj #{16 17} ks))
 
 (defn handle-key-chord [chord-set]
   (condp = chord-set
     #{16} (prn "you're pressing shift!")
     #{16 17} (prn "holding the prefix")
-    #{16 17 71} (clear-keys)
-    #{16 17 74} (prn "J")
-    #{16 17 75} (prn "K")
-    #{16 17 76} (prn "L")
-    #{16 17 80} (prn "P")
-    #{16 17 68} (remove-tile)
-    #{16 17 84} (add-tile)
+    (prefix 69) (prn "conjed shortcut 69")
+    (prefix 70) (GET "http://localhost:5000/xd/fqjn/examples/master/attributed_xml/poCustWrite.xtl")
+    (prefix 71) (clear-keys)
+    (prefix 74) (prn "J")
+    (prefix 75) (prn "K")
+    (prefix 76) (prn "L")
+    (prefix 80) (prn "P")
+    (prefix 68) (remove-tile)
+    (prefix 84) (add-tile)
     (prn "not bound")))
 
 (let [el (by-id "ex1")
@@ -196,7 +209,7 @@
       (dom/h2 nil (:title app)))))
 
 (om/root simple-component app-state
-  {:target (. js/document (getElementById "app"))})
+  {:target (by-id "app")})
 
 (defn map-loader-component [app owner]
   (reify
@@ -206,7 +219,7 @@
         (dom/p nil (str pressed))))))
 
 (om/root map-loader-component app-state
-  {:target (. js/document (getElementById "map"))})
+  {:target (by-id "map")})
 
 (defn tile-view [tile owner]
   (om/component
