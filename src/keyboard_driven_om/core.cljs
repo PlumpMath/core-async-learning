@@ -41,6 +41,9 @@
           (let [key (<! c)
                 keycode (.-keyCode key)]
             (prn (str "keycode: " keycode " -- func: " event))
+            ;; dirty special case to prevent sticking
+            (when (and (= event "keyup") (= 91 keycode) )
+              (swap! app-state assoc :keys-pressed #{}))
             (swap! app-state assoc :keys-pressed
                    (func (:keys-pressed @app-state) keycode)))))))
 
