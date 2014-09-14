@@ -10,12 +10,14 @@
 
 (enable-console-print!)
 
-(def app-state (atom {:text "Hello world!"
+(def app-state (atom {:title "CSP Examples (core.async)"
                       :keys-pressed #{}}))
 
 (defn event-chan [el type]
   (let [out (chan)]
     (.addEventListener el type #(put! out %))
+    ;(.addEventListener el type (fn [x] (.preventDefault x)
+                                 ;(put! out x)))
     out))
 
 (defn handle-key-event [event]
@@ -38,6 +40,7 @@
     (go (while true
           (let [key (<! c)
                 keycode (.-keyCode key)]
+            (prn (str "keycode: " keycode " -- func: " event))
             (swap! app-state assoc :keys-pressed
                    (func (:keys-pressed @app-state) keycode)))))))
 
@@ -111,6 +114,22 @@
       {:x (+ (.-offsetX e) left)
        :y (+ (.-offsetY e) top)})))
 
+(defn clear-keys []
+  (prn "trying to clear keys")
+  (swap! app-state assoc :keys-pressed #{}))
+
+(def prefix #{16 17})
+
+(defn handle-key-chord [chord-set]
+  (condp = chord-set
+    #{16} (prn "you're pressing shift!")
+    #{16 17} (prn "holding the prefix")
+    #{16 17 71} (clear-keys)
+    #{16 17 74} (prn "J")
+    #{16 17 75} (prn "K")
+    #{16 17 76} (prn "L")
+    (prn "not bound")))
+
 (let [el (by-id "ex1")
       outm (by-id "ex1-mouse")
       outk (by-id "ex1-key")
@@ -118,6 +137,7 @@
       kc (listen js/window "keydown")]
   (go (while true
         (let [[v c] (alts! [mc kc])]
+          (-> @app-state :keys-pressed handle-key-chord)
           (condp = c
             mc (set-html! outm (str (:x v) ", " (:y v)))
             kc (set-html! outk (handle-key-event v)))))))
@@ -126,7 +146,7 @@
   (reify
     om/IRender
     (render [_]
-      (dom/h2 nil "CSP examples (core.async)"))))
+      (dom/h2 nil (:title app)))))
 
 (om/root simple-component app-state
   {:target (. js/document (getElementById "app"))})
