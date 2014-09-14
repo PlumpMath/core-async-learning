@@ -11,11 +11,28 @@
 (enable-console-print!)
 
 (def app-state (atom {:title "CSP Examples (core.async)"
-                      :keys-pressed #{}}))
+                      :keys-pressed #{}
+                      :processes []
+                      :tiles []}))
+
+(defn listen [el type]
+  (let [c (chan)]
+    (events/listen el type #(put! c %))
+    c))
+
+(defn set-html! [el s]
+  (set! (.-innerHTML el) s))
+
+(defn by-id [id]
+  (.getElementById js/document id))
+
+(defn offset [el]
+  [(style/getPageOffsetLeft el) (style/getPageOffsetTop el)])
 
 (defn event-chan [el type]
   (let [out (chan)]
     (.addEventListener el type #(put! out %))
+    ;; if event has a match in the app, preventDefault
     ;(.addEventListener el type (fn [x] (.preventDefault x)
                                  ;(put! out x)))
     out))
@@ -61,7 +78,9 @@
 (let [winchan (event-chan js/window "beforeunload")]
   (go (while true
         (<! winchan)
-        (js/alert "are you sure you want to close?"))))
+        ;; need to actually respect user's choice
+        ;; need to set 'cancel' as default
+        (js/confirm "are you sure you want to close?"))))
 
 (go
   (prn "hello")
@@ -69,25 +88,6 @@
   (prn "async")
   (<! (timeout 1000))
   (prn "world"))
-
-(defn listen [el type]
-  (let [c (chan)]
-    (events/listen el type #(put! c %))
-    c))
-
-(defn set-html! [el s]
-  (set! (.-innerHTML el) s))
-
-(defn by-id [id]
-  (.getElementById js/document id))
-
-(defn offset [el]
-  [(style/getPageOffsetLeft el) (style/getPageOffsetTop el)])
-
-(defn render [q]
-  (apply str
-         (for [p (reverse q)]
-           (str "<div class='proc-" p "'>Process " p "</div>"))))
 
 (defn chanmap [f in]
   (let [c (chan)]
@@ -108,11 +108,34 @@
     (subvec v (- (count v) n))
     v))
 
-(let [el (by-id "ex0")
-      out (by-id "ex0-out")]
-  (go (loop [q []]
-        (set-html! out (render q))
-        (recur (-> (conj q (<! c)) (peekn 10))))))
+(defn app-state-watcher [app owner]
+  (om/component
+    (dom/div nil
+             (dom/h2 nil "AppState Watcher")
+             (apply dom/ul nil
+                    (map #(dom/li nil (str %)) app)))))
+
+(om/root app-state-watcher app-state
+  {:target (by-id "state-area")})
+
+(defn process-view [proc owner]
+  (om/component
+    (dom/li nil (str "Process " proc))))
+
+(defn process-area [app owner]
+  (om/component
+    (dom/div nil
+             (dom/h2 nil "Process Area")
+             (apply dom/ul nil
+                    (om/build-all process-view (:processes @app-state))))))
+
+(om/root process-area app-state
+  {:target (by-id "process-area")})
+
+(go (loop [q []]
+      (let [procs (-> (conj q (<! c)) (peekn 10))]
+        (swap! app-state assoc :processes (reverse procs))
+        (recur procs))))
 
 (defn location [el]
   (let [[left top] (cljs.core/map int (offset el))]
@@ -124,6 +147,21 @@
   (prn "trying to clear keys")
   (swap! app-state assoc :keys-pressed #{}))
 
+(defn add-tile []
+  (swap! app-state assoc :tiles
+         (let [tiles (:tiles @app-state)
+               n (count tiles)]
+           (if (< 29 n)
+             tiles
+             (conj tiles {:val (inc n)})))))
+
+(defn remove-tile []
+  (swap! app-state assoc :tiles
+         (let [tiles (:tiles @app-state)]
+           (if (empty? tiles)
+             tiles
+             (pop tiles)))))
+
 (def prefix #{16 17})
 
 (defn handle-key-chord [chord-set]
@@ -134,6 +172,9 @@
     #{16 17 74} (prn "J")
     #{16 17 75} (prn "K")
     #{16 17 76} (prn "L")
+    #{16 17 80} (prn "P")
+    #{16 17 68} (remove-tile)
+    #{16 17 84} (add-tile)
     (prn "not bound")))
 
 (let [el (by-id "ex1")
@@ -166,3 +207,19 @@
 
 (om/root map-loader-component app-state
   {:target (. js/document (getElementById "map"))})
+
+(defn tile-view [tile owner]
+  (om/component
+    (dom/li nil (str "Tile " tile))))
+
+(defn tile-holder-component [app state]
+  (reify
+    om/IRender
+    (render [_]
+      (dom/div nil
+               (dom/h2 nil "tiling area")
+               (apply dom/ul nil
+                      (om/build-all tile-view (:tiles @app-state)))))))
+
+(om/root tile-holder-component app-state
+  {:target (by-id "tile-area")})
