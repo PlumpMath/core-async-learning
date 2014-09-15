@@ -10,14 +10,16 @@
 
 (enable-console-print!)
 
-(def app-state (atom {:title "CSP Examples (core.async)"
-                      :keys-pressed #{}
-                      :processes []
-                      :tiles []
-                      :fqjn ""
-                      :map {}
-                      :repos []
-                      :focused ""}))
+(def app-state
+  (atom {:title "CSP Examples (core.async)"
+         :keys-pressed #{}
+         :processes []
+         :tiles []
+         :fqjn ""
+         :map {}
+         :repos []
+         :focused ""
+         :fielddef {}}))
 
 (defn listen [el type]
   (let [c (chan)]
@@ -161,8 +163,20 @@
       {:x (+ (.-offsetX e) left)
        :y (+ (.-offsetY e) top)})))
 
+;; XTL Utils =======================
+(defn get-docdef-atts [xtl]
+  (-> @app-state :map xtl :children first :atts))
+
+(defn build-fqjn-index-xtl [xtl]
+  )
+
+(defn build-fqjn-index [xnet]
+  (set (concat (-> xnet :input build-fqjn-index-xtl)
+               (-> xnet :output build-fqjn-index-xtl))))
+
+;; Keyboard Shortcut funcs =========
 (defn clear-keys []
-  (prn "trying to clear keys")
+  (prn "clearing keys")
   (swap! app-state assoc :keys-pressed #{}))
 
 (defn add-tile []
@@ -194,9 +208,25 @@
   (prn (str "loaded map: " path))
   (GET (str xdapi "map/" path) :map))
 
+(defn set-fielddef []
+  (let [fielddef (-> @app-state :map :input :children first :children
+                     rest rest rest rest first :children first)]
+    (swap! app-state assoc :fielddef fielddef)))
+
 (defn clear-map []
   (prn "cleared map")
   (swap! app-state assoc :map {}))
+
+(defn set-docdef-focused-tile []
+  (swap! app-state assoc :focused (conj (:focused @app-state)
+                                  {:docdef-atts (get-docdef-atts :input)})))
+
+(defn mutate-tree []
+  (let [current-map (:map @app-state)
+        modified-map (assoc-in current-map [:input :children 0 :children
+                                            4 :children 0
+                                            :atts :javaName] "new java name!!")]
+    (swap! app-state assoc :map modified-map)))
 
 (defn refresh-repos []
   (GET (str xdapi "list") :repos))
@@ -208,28 +238,31 @@
   (condp = chord-set
     #{16} (prn "you're pressing shift!")
     #{16 17} (prn "holding the prefix")
-    (prefix 49) (focus-tile 0)
-    (prefix 50) (focus-tile 1)
-    (prefix 51) (focus-tile 2)
-    (prefix 52) (focus-tile 3)
-    (prefix 53) (focus-tile 4)
-    (prefix 54) (focus-tile 5)
-    (prefix 55) (focus-tile 6)
-    (prefix 56) (focus-tile 7)
-    (prefix 57) (focus-tile 8)
-    (prefix 69) (prn "conjed shortcut 69")
-    (prefix 70) (update-fqjn "examples/master/attributed_xml/poCustWrite.xtl")
-    (prefix 71) (clear-keys)
-    (prefix 74) (prn "J")
-    (prefix 75) (clear-map)
-    (prefix 76) (load-map "examples/master/attributed_xml/poCustWrite.xtl")
-    (prefix 80) (prn "P")
+    (prefix 49)  (focus-tile 0)
+    (prefix 50)  (focus-tile 1)
+    (prefix 51)  (focus-tile 2)
+    (prefix 52)  (focus-tile 3)
+    (prefix 53)  (focus-tile 4)
+    (prefix 54)  (focus-tile 5)
+    (prefix 55)  (focus-tile 6)
+    (prefix 56)  (focus-tile 7)
+    (prefix 57)  (focus-tile 8)
+    (prefix 69)  (prn "conjed shortcut 69")
+    (prefix 70)  (update-fqjn "examples/master/attributed_xml/poCustWrite.xtl")
+    (prefix 71)  (clear-keys)
+    (prefix 74)  (prn "J")
+    (prefix 75)  (clear-map)
+    (prefix 76)  (load-map "examples/master/attributed_xml/poCustWrite.xtl")
+    (prefix 80)  (prn "P")
     (prefix 186) (prn "focus the minibuffer")
-    (prefix 68) (remove-tile)
-    (prefix 84) (add-tile)
-    #{17 18 84} (add-tile)
-    #{17 18 68} (remove-tile)
-    #{17 18 82} (refresh-repos)
+    (prefix 220) (mutate-tree)
+    (prefix 222) (set-fielddef)
+    (prefix 68)  (remove-tile)
+    (prefix 84)  (add-tile)
+    (prefix 86)  (set-docdef-focused-tile)
+    #{17 18 84}  (add-tile)
+    #{17 18 68}  (remove-tile)
+    #{17 18 82}  (refresh-repos)
     (prn "not bound")))
 
 (let [el (by-id "ex1")
@@ -289,3 +322,30 @@
 
 (om/root tile-holder-component app-state
   {:target (by-id "tile-area")})
+
+(defn att-view [att owner]
+  (om/component
+    (dom/li nil (str (-> att first name) ": " (last att)))))
+
+(defn atts-view [atts owner]
+  (om/component
+    (dom/div nil
+             (apply dom/ul nil (om/build-all att-view atts)))))
+
+(defn node-view [node owner]
+  (om/component
+    (dom/div nil
+             (:name node)
+             (om/build atts-view (:atts node))
+             (-> node :text str)
+             (apply dom/div nil
+                    (om/build-all node-view (:children node))))))
+
+(defn xtl-view [app owner]
+  (om/component
+    (dom/div nil
+             (dom/h2 nil "XTL Area")
+                    (om/build node-view (-> @app-state :map :input)))))
+
+(om/root xtl-view app-state
+  {:target (by-id "map-area")})
