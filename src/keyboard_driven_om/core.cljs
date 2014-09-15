@@ -16,7 +16,8 @@
                       :tiles []
                       :fqjn ""
                       :map {}
-                      :repos []}))
+                      :repos []
+                      :focused ""}))
 
 (defn listen [el type]
   (let [c (chan)]
@@ -181,7 +182,8 @@
 
 (defn focus-tile [n]
   (let [tiles (:tiles @app-state)]
-        (swap! app-state assoc :focused (when (> (count tiles) n) (nth tiles n)))))
+        (swap! app-state assoc :focused
+               (if (> (count tiles) n) (nth tiles n) (:focused @app-state)))))
 
 (def xdapi "http://localhost:5000/xd/")
 
@@ -270,12 +272,11 @@
 (defn tile-view [tile owner]
   (om/component
     (prn (if (= tile (:focused @app-state)) "green" "black"))
-    (dom/div #js {:style (get-tile-style (if (= tile (:focused @app-state))
-                                           "green" "black") 200 200)
-                  :onMouseover #(prn tile)
-                  :onClick #(swap! app-state assoc :focused tile)}
-                  ;:onClick #(prn (str "you clicked " tile))}
-             (str "Tile " tile))))
+    (let [focus-me #(swap! app-state assoc :focused tile)]
+      (dom/div #js {:style (get-tile-style "black" 200 200)
+                    :onMouseOver focus-me
+                    :onClick focus-me}
+               (str "Tile " tile)))))
 
 (defn tile-holder-component [app state]
   (reify
