@@ -14,7 +14,9 @@
                       :keys-pressed #{}
                       :processes []
                       :tiles []
-                      :fqjn ""}))
+                      :fqjn ""
+                      :map {}
+                      :repos []}))
 
 (defn listen [el type]
   (let [c (chan)]
@@ -38,15 +40,19 @@
                                  ;(put! out x)))
     out))
 
-(defn GET [url]
+(defn GET [url k]
   (go (let [response (<! (http/get url {:with-credentials? false}))]
         (prn (:status response))
-        (prn (:body response))
-        (swap! app-state assoc :fqjn (:body response)))))
+        ;(prn (:body response))
+        (swap! app-state assoc k (:body response)))))
 
 (defn handle-key-event [event]
   (let [k (.-keyCode event)]
     (condp = k
+      37 "left"
+      39 "right"
+      38 "up"
+      40 "down"
       34 "pagedown"
       32 "space"
       13 "enter"
@@ -78,8 +84,6 @@
 (gen-key-chan "keydown" conj)
 (gen-key-chan "keyup" disj)
 
-;(let [fqjn-chan 
-
 (let [winchan (event-chan js/window "blur")]
   (go (while true
         (<! winchan)
@@ -90,7 +94,8 @@
         (<! winchan)
         ;; need to actually respect user's choice
         ;; need to set 'cancel' as default
-        (js/confirm "are you sure you want to close?"))))
+        (prn "navigating away from page"))))
+        ;(js/confirm "are you sure you want to close?"))))
 
 (go
   (prn "hello")
@@ -123,7 +128,9 @@
     (dom/div nil
              (dom/h2 nil "AppState Watcher")
              (apply dom/ul nil
-                    (map #(dom/li nil (str %)) app)))))
+                    ;(map #(dom/li nil (str %)) app)))))
+                    ;; prevent printing of that massive map
+                    (map #(when (not= :map (first %)) (dom/li nil (str %))) app)))))
 
 (om/root app-state-watcher app-state
   {:target (by-id "state-area")})
@@ -139,8 +146,8 @@
              (apply dom/ul nil
                     (om/build-all process-view (:processes @app-state))))))
 
-(om/root process-area app-state
-  {:target (by-id "process-area")})
+;(om/root process-area app-state
+  ;{:target (by-id "process-area")})
 
 (go (loop [q []]
       (let [procs (-> (conj q (<! c)) (peekn 10))]
@@ -172,6 +179,26 @@
              tiles
              (pop tiles)))))
 
+(defn focus-tile [n]
+  (let [tiles (:tiles @app-state)]
+        (swap! app-state assoc :focused (when (> (count tiles) n) (nth tiles n)))))
+
+(def xdapi "http://localhost:5000/xd/")
+
+(defn update-fqjn [path]
+  (GET (str xdapi "fqjn/" path) :fqjn))
+
+(defn load-map [path]
+  (prn (str "loaded map: " path))
+  (GET (str xdapi "map/" path) :map))
+
+(defn clear-map []
+  (prn "cleared map")
+  (swap! app-state assoc :map {}))
+
+(defn refresh-repos []
+  (GET (str xdapi "list") :repos))
+
 (defn prefix [ks]
   (conj #{16 17} ks))
 
@@ -179,15 +206,28 @@
   (condp = chord-set
     #{16} (prn "you're pressing shift!")
     #{16 17} (prn "holding the prefix")
+    (prefix 49) (focus-tile 0)
+    (prefix 50) (focus-tile 1)
+    (prefix 51) (focus-tile 2)
+    (prefix 52) (focus-tile 3)
+    (prefix 53) (focus-tile 4)
+    (prefix 54) (focus-tile 5)
+    (prefix 55) (focus-tile 6)
+    (prefix 56) (focus-tile 7)
+    (prefix 57) (focus-tile 8)
     (prefix 69) (prn "conjed shortcut 69")
-    (prefix 70) (GET "http://localhost:5000/xd/fqjn/examples/master/attributed_xml/poCustWrite.xtl")
+    (prefix 70) (update-fqjn "examples/master/attributed_xml/poCustWrite.xtl")
     (prefix 71) (clear-keys)
     (prefix 74) (prn "J")
-    (prefix 75) (prn "K")
-    (prefix 76) (prn "L")
+    (prefix 75) (clear-map)
+    (prefix 76) (load-map "examples/master/attributed_xml/poCustWrite.xtl")
     (prefix 80) (prn "P")
+    (prefix 186) (prn "focus the minibuffer")
     (prefix 68) (remove-tile)
     (prefix 84) (add-tile)
+    #{17 18 84} (add-tile)
+    #{17 18 68} (remove-tile)
+    #{17 18 82} (refresh-repos)
     (prn "not bound")))
 
 (let [el (by-id "ex1")
@@ -198,18 +238,19 @@
   (go (while true
         (let [[v c] (alts! [mc kc])]
           (-> @app-state :keys-pressed handle-key-chord)
-          (condp = c
-            mc (set-html! outm (str (:x v) ", " (:y v)))
-            kc (set-html! outk (handle-key-event v)))))))
+          ;(condp = c
+            ;mc (set-html! outm (str (:x v) ", " (:y v)))
+            ;kc (set-html! outk (handle-key-event v)))))))
+          ))))
 
-(defn simple-component [app owner]
+(defn title-component [app owner]
   (reify
     om/IRender
     (render [_]
       (dom/h2 nil (:title app)))))
 
-(om/root simple-component app-state
-  {:target (by-id "app")})
+;(om/root title-component app-state
+  ;{:target (by-id "app")})
 
 (defn map-loader-component [app owner]
   (reify
@@ -218,20 +259,31 @@
       (let [pressed (:keys-pressed app)]
         (dom/p nil (str pressed))))))
 
-(om/root map-loader-component app-state
-  {:target (by-id "map")})
+;(om/root map-loader-component app-state
+  ;{:target (by-id "map")})
+
+(defn get-tile-style [color width height]
+  #js {:border (str "2px solid " color) :overflow "auto"
+       :float "left" :resize "both"
+       :width (str width "px") :height (str height "px")})
 
 (defn tile-view [tile owner]
   (om/component
-    (dom/li nil (str "Tile " tile))))
+    (prn (if (= tile (:focused @app-state)) "green" "black"))
+    (dom/div #js {:style (get-tile-style (if (= tile (:focused @app-state))
+                                           "green" "black") 200 200)
+                  :onMouseover #(prn tile)
+                  :onClick #(swap! app-state assoc :focused tile)}
+                  ;:onClick #(prn (str "you clicked " tile))}
+             (str "Tile " tile))))
 
 (defn tile-holder-component [app state]
   (reify
     om/IRender
     (render [_]
-      (dom/div nil
-               (dom/h2 nil "tiling area")
-               (apply dom/ul nil
+      (dom/div #js {:style #js {:border "2px solid black" :overflow "auto"
+                                :height "360px"}}
+               (apply dom/div nil
                       (om/build-all tile-view (:tiles @app-state)))))))
 
 (om/root tile-holder-component app-state
