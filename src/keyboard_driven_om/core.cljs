@@ -4,6 +4,7 @@
             [om.dom :as dom :include-macros true]
             [cljs.core.async :refer [put! chan <! >! alts! timeout close!]]
             [cljs-http.client :as http]
+            [cljs.reader :as reader]
             [goog.events :as events]
             [goog.style :as style])
   (:import [goog.events EventType]))
@@ -18,7 +19,7 @@
          :fqjn ""
          :map {}
          :repos []
-         :focused ""
+         :focused {}
          :fielddef {}}))
 
 (defn listen [el type]
@@ -129,7 +130,7 @@
 (defn app-state-watcher [app owner]
   (om/component
     (dom/div nil
-             (dom/h2 nil "AppState Watcher")
+             (dom/h3 nil "AppState")
              (apply dom/ul nil
                     ;(map #(dom/li nil (str %)) app)))))
                     ;; prevent printing of that massive map
@@ -145,7 +146,7 @@
 (defn process-area [app owner]
   (om/component
     (dom/div nil
-             (dom/h2 nil "Process Area")
+             (dom/h3 nil "Process Area")
              (apply dom/ul nil
                     (om/build-all process-view (:processes @app-state))))))
 
@@ -165,7 +166,7 @@
 
 ;; XTL Utils =======================
 (defn get-docdef-atts [xtl]
-  (-> @app-state :map xtl :children first :atts))
+  (-> xtl :children first :atts))
 
 (defn build-fqjn-index-xtl [xtl]
   )
@@ -219,17 +220,21 @@
 
 (defn set-docdef-focused-tile []
   (swap! app-state assoc :focused (conj (:focused @app-state)
-                                  {:docdef-atts (get-docdef-atts :input)})))
+                                  {:docdef-atts (get-docdef-atts
+                                                  (-> @app-state :map :input))})))
 
 (defn mutate-tree []
   (let [current-map (:map @app-state)
         modified-map (assoc-in current-map [:input :children 0 :children
-                                            4 :children 0
-                                            :atts :javaName] "new java name!!")]
+                                            4 :children 0 :atts :javaName]
+                               "NEW BREAKING JAVANAME")]
     (swap! app-state assoc :map modified-map)))
 
 (defn refresh-repos []
   (GET (str xdapi "list") :repos))
+
+(defn undo []
+  (prn "undoing"))
 
 (defn prefix [ks]
   (conj #{16 17} ks))
@@ -260,10 +265,15 @@
     (prefix 68)  (remove-tile)
     (prefix 84)  (add-tile)
     (prefix 86)  (set-docdef-focused-tile)
+    (prefix 90)  (undo)
     #{17 18 84}  (add-tile)
     #{17 18 68}  (remove-tile)
     #{17 18 82}  (refresh-repos)
     (prn "not bound")))
+
+;(let [kc (listen js/window "keydown")]
+  ;(go (while true
+        ;(-> @app-state :keys-pressed handle-key-chord))))
 
 (let [el (by-id "ex1")
       outm (by-id "ex1-mouse")
@@ -282,24 +292,24 @@
   (reify
     om/IRender
     (render [_]
-      (dom/h2 nil (:title app)))))
+      (dom/h3 nil (:title app)))))
 
 ;(om/root title-component app-state
   ;{:target (by-id "app")})
 
-(defn map-loader-component [app owner]
+(defn display-keys-component [app owner]
   (reify
     om/IRender
     (render [_]
       (let [pressed (:keys-pressed app)]
         (dom/p nil (str pressed))))))
 
-;(om/root map-loader-component app-state
+;(om/root display-keys-component app-state
   ;{:target (by-id "map")})
 
 (defn get-tile-style [color width height]
   #js {:border (str "2px solid " color) :overflow "auto"
-       :float "left" :resize "both"
+       :float "left" :resize "both" :margin "1px"
        :width (str width "px") :height (str height "px")})
 
 (defn tile-view [tile owner]
@@ -309,18 +319,25 @@
       (dom/div #js {:style (get-tile-style "black" 200 200)
                     :onMouseOver focus-me
                     :onClick focus-me}
-               (str "Tile " tile)))))
+               (om/build map-view app-state)))))
+               ;(str "Tile " tile)))))
 
-(defn tile-holder-component [app state]
+(defn tile-pane-component [app state]
   (reify
     om/IRender
     (render [_]
       (dom/div #js {:style #js {:border "2px solid black" :overflow "auto"
                                 :height "360px"}}
                (apply dom/div nil
-                      (om/build-all tile-view (:tiles @app-state)))))))
+                      (om/build-all tile-view (:tiles app)))))))
 
-(om/root tile-holder-component app-state
+(defn tile-pane-holder [app state]
+  (om/component
+    (dom/div nil
+             (dom/h3 nil "Tile Workspace")
+             (om/build tile-pane-component app))))
+
+(om/root tile-pane-holder app-state
   {:target (by-id "tile-area")})
 
 (defn att-view [att owner]
@@ -341,11 +358,19 @@
              (apply dom/div nil
                     (om/build-all node-view (:children node))))))
 
-(defn xtl-view [app owner]
+(defn xtl-view [xtl owner]
+  (om/component
+    (dom/div #js {:style #js {:border "2px solid black" :margin "1px"
+                              :overflow "auto"}}
+             (dom/h3 nil (-> xtl get-docdef-atts :fullyQualifiedJavaName))
+             (om/build node-view xtl))))
+
+(defn map-view [app owner]
   (om/component
     (dom/div nil
-             (dom/h2 nil "XTL Area")
-                    (om/build node-view (-> @app-state :map :input)))))
+             (dom/h3 nil "Map Area")
+             (om/build xtl-view (-> app :map :input))
+             (om/build xtl-view (-> app :map :output)))))
 
-(om/root xtl-view app-state
+(om/root map-view app-state
   {:target (by-id "map-area")})
