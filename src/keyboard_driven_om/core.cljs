@@ -22,6 +22,16 @@
          :focused {}
          :fielddef {}}))
 
+(extend-type string
+  ICloneable
+  (-clone [s] (js/String. s)))
+
+(extend-type js/String
+  ICloneable
+  (-clone [s] (js/String. s))
+  om/IValue
+  (-value [s] (str s)))
+
 (defn listen [el type]
   (let [c (chan)]
     (events/listen el type #(put! c %))
@@ -180,20 +190,28 @@
   (prn "clearing keys")
   (swap! app-state assoc :keys-pressed #{}))
 
+(defn get-tiling-workspace-size []
+  )
+
+(defn resize-all-tiles []
+  )
+
 (defn add-tile []
   (swap! app-state assoc :tiles
          (let [tiles (:tiles @app-state)
                n (count tiles)]
            (if (> n 29)
              tiles
-             (conj tiles {:val (inc n)})))))
+             (conj tiles {:num (inc n)}))))
+  (resize-all-tiles))
 
 (defn remove-tile []
   (swap! app-state assoc :tiles
          (let [tiles (:tiles @app-state)]
            (if (empty? tiles)
              tiles
-             (pop tiles)))))
+             (pop tiles))))
+  (resize-all-tiles))
 
 (defn focus-tile [n]
   (let [tiles (:tiles @app-state)]
@@ -230,6 +248,10 @@
                                "NEW BREAKING JAVANAME")]
     (swap! app-state assoc :map modified-map)))
 
+(defn publish-map []
+  (prn (str "publishing map: "
+            (-> @app-state :map :output get-docdef-atts :fullyQualifiedJavaName))))
+
 (defn refresh-repos []
   (GET (str xdapi "list") :repos))
 
@@ -263,6 +285,7 @@
     (prefix 220) (mutate-tree)
     (prefix 222) (set-fielddef)
     (prefix 68)  (remove-tile)
+    (prefix 83)  (publish-map)
     (prefix 84)  (add-tile)
     (prefix 86)  (set-docdef-focused-tile)
     (prefix 90)  (undo)
@@ -270,10 +293,6 @@
     #{17 18 68}  (remove-tile)
     #{17 18 82}  (refresh-repos)
     (prn "not bound")))
-
-;(let [kc (listen js/window "keydown")]
-  ;(go (while true
-        ;(-> @app-state :keys-pressed handle-key-chord))))
 
 (let [el (by-id "ex1")
       outm (by-id "ex1-mouse")
@@ -314,15 +333,14 @@
 
 (defn tile-view [tile owner]
   (om/component
-    (prn (if (= tile (:focused @app-state)) "green" "black"))
     (let [focus-me #(swap! app-state assoc :focused tile)]
-      (dom/div #js {:style (get-tile-style "black" 200 200)
+      (dom/div #js {:style (get-tile-style "black" 200 354)
                     :onMouseOver focus-me
                     :onClick focus-me}
-               (om/build map-view app-state)))))
-               ;(str "Tile " tile)))))
+               (clj->js tile)))))
+               ;(om/build xtl-view (-> @app-state :map :input))))))
 
-(defn tile-pane-component [app state]
+(defn tile-pane-component [app owner]
   (reify
     om/IRender
     (render [_]
@@ -337,24 +355,64 @@
              (dom/h3 nil "Tile Workspace")
              (om/build tile-pane-component app))))
 
-(om/root tile-pane-holder app-state
+(om/root tile-pane-component app-state
   {:target (by-id "tile-area")})
+
+(defn commit-change [text owner]
+  (om/set-state! owner :editing false))
+
+(defn handle-change [e text owner]
+  (om/transact! text (fn [_] (.. e -target -value))))
+
+(defn display [show]
+  (if show
+    #js {}
+    #js {:display "none"}))
+
+(defn editable [text owner]
+  (reify
+    om/IInitState
+    (init-state [_]
+      {:editing false})
+    om/IRenderState
+    (render-state [_ {:keys [editing]}]
+      ;(dom/li nil
+      (dom/div nil
+              (dom/span #js {:style (display (not editing))} (str text))
+              (dom/input
+                #js {:style (display editing)
+                     :value (om/value text)
+                     :onChange #(handle-change % text owner)
+                     ;:onClick #(om/set-state! owner :editing true)
+                     :onKeyDown #(when (= (.-key %) "Enter")
+                                   (commit-change text owner))
+                     :onBlur (fn [e] (commit-change text owner))})
+              (dom/button
+                #js {:style (display (not editing))
+                     :onClick #(om/set-state! owner :editing true)}
+                "Edit")))))
 
 (defn att-view [att owner]
   (om/component
-    (dom/li nil (str (-> att first name) ": " (last att)))))
+    ;(dom/li nil (str (-> att first name) ": " (last att)))))
+    (dom/div nil (-> att first name)
+             (om/build editable (second att)))))
 
 (defn atts-view [atts owner]
   (om/component
     (dom/div nil
              (apply dom/ul nil (om/build-all att-view atts)))))
+             ;(apply dom/ul nil (om/build-all editable (vals atts))))))
+             ;(apply dom/ul nil (om/build-all editable atts)))))
 
 (defn node-view [node owner]
   (om/component
     (dom/div nil
              (:name node)
-             (om/build atts-view (:atts node))
+             (dom/br nil nil)
              (-> node :text str)
+             ;(om/build editable (:text node))
+             (om/build atts-view (:atts node))
              (apply dom/div nil
                     (om/build-all node-view (:children node))))))
 
@@ -362,7 +420,7 @@
   (om/component
     (dom/div #js {:style #js {:border "2px solid black" :margin "1px"
                               :overflow "auto"}}
-             (dom/h3 nil (-> xtl get-docdef-atts :fullyQualifiedJavaName))
+             (dom/h4 nil (-> xtl get-docdef-atts :fullyQualifiedJavaName))
              (om/build node-view xtl))))
 
 (defn map-view [app owner]
